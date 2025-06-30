@@ -4,7 +4,7 @@ from typing import Dict
 from datetime import date
 
 sys.path.append(str(Path(__file__).resolve().parents[2] / "common"))
-from azure_llm import azure_llm_chat
+from common.azure_llm import azure_llm_chat
 
 MODEL = "gpt-4o"
 
