@@ -4,7 +4,6 @@ import sys, re
 
 from .state import CURRENT_SPEC
 
-sys.path.append(str(Path(__file__).resolve().parents[2] / "common"))
 from common.azure_llm import azure_llm_chat
 
 router = APIRouter()
