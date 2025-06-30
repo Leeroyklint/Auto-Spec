@@ -13,6 +13,9 @@ import uvicorn
 # ──────────────────────────────────────────────────────────────────────────────
 # 0) Prépare le PYTHONPATH pour trouver le backend et les modules communs
 # ──────────────────────────────────────────────────────────────────────────────
+ROOT = os.path.dirname(os.path.dirname(__file__))  # remonte au dossier projet
+sys.path.append(os.path.join(ROOT, "backend"))   # backend.app.main
+sys.path.append(ROOT)                             # common, etc.
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 1) Utilitaire : vérifie si un port est libre
