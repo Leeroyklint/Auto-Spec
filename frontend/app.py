@@ -1,13 +1,69 @@
-# frontend/app.py – v7 (récent ➜ haut, mais Q ➜ R dans le bon ordre)
+# frontend/app.py – v8 (autonome)
+# -----------------------------------------------------------------------------
+# Ce fichier **se suffit à lui‑même** : on lance la commande
+#     streamlit run frontend/app.py
+# et il démarre automatiquement le backend FastAPI (uvicorn) dans un thread,
+# puis continue l’exécution du front. Les ports/URLs sont internes.
+# -----------------------------------------------------------------------------
 
+import os, sys, threading, time, socket, contextlib
 import streamlit as st
-import requests
-import os
+import uvicorn
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 0) Prépare le PYTHONPATH pour trouver le backend et les modules communs
+# ──────────────────────────────────────────────────────────────────────────────
+ROOT = os.path.dirname(os.path.dirname(__file__))  # remonte au dossier projet
+sys.path.append(os.path.join(ROOT, "backend"))   # backend.app.main
+sys.path.append(ROOT)                             # common, etc.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 1) Utilitaire : vérifie si un port est libre
+# ──────────────────────────────────────────────────────────────────────────────
+
+def port_is_free(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("127.0.0.1", port)) != 0
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 2) Lance le backend FastAPI **une seule fois**
+# ──────────────────────────────────────────────────────────────────────────────
+BACKEND_PORT = 8000
+BACKEND_URL = f"http://127.0.0.1:{BACKEND_PORT}"
+
+if "_backend_started" not in st.session_state:
+    from backend.app.main import app as fastapi_app  # import tardif
+
+    def _run_backend():
+        uvicorn.run(
+            fastapi_app,
+            host="0.0.0.0",
+            port=BACKEND_PORT,
+            log_level="warning",
+        )
+
+    if port_is_free(BACKEND_PORT):
+        thread = threading.Thread(target=_run_backend, daemon=True)
+        thread.start()
+        # attend que le serveur réponde pour éviter les appels 404
+        for _ in range(30):
+            if not port_is_free(BACKEND_PORT):
+                break
+            time.sleep(0.1)
+        st.session_state["_backend_thread"] = thread
+    else:
+        st.session_state["_backend_thread"] = None  # déjà lancé
+
+    st.session_state["_backend_started"] = True
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 3) Reste du FRONTEND (v7) — inchangé, sauf BACKEND URL
+# ──────────────────────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="Klint – PBIX Spec & Chat", layout="wide")
 
 st.title("🚀 Klint – PBIX Spec & Chat")
-BACKEND = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+BACKEND = BACKEND_URL  # ← utilise le backend interne
 
 # -----------------------------------------------------------------------------
 # 1) SESSION STATE INIT
@@ -34,6 +90,7 @@ with st.sidebar:
             st.session_state.pbix_uid = uid
             with st.spinner("Extraction & rédaction en cours…"):
                 try:
+                    import requests
                     resp = requests.post(
                         f"{BACKEND}/api/spec",
                         files={"pbix": (pbix.name, pbix.getvalue(), "application/octet-stream")},
@@ -81,6 +138,7 @@ with col_chat:
             st.session_state.chat.append(("user", prompt))
             with st.spinner("L’IA réfléchit…"):
                 try:
+                    import requests
                     r = requests.post(
                         f"{BACKEND}/api/chat",
                         json={"id": st.session_state.spec_id, "question": prompt},
@@ -92,9 +150,9 @@ with col_chat:
                     answer = f"Erreur backend : {exc}"
             st.session_state.chat.append(("assistant", answer))
 
-        # ------------------ Affichage : exchange par exchange (récent ➜ haut)
+        # ------------------ Affichage : pairs récentes en haut
         chat = st.session_state.chat
-        idx = len(chat) - 2  # pointe sur le dernier "user"
+        idx = len(chat) - 2
         while idx >= 0:
             user_role, user_msg = chat[idx]
             assistant_role, assistant_msg = chat[idx + 1]
