@@ -1,11 +1,4 @@
-# frontend/app.py – v3 (chat normal, input fixe en bas)
-# -----------------------------------------------------------------------------
-#  • Input collé en bas de la fenêtre (CSS)
-#  • Messages affichés dans l’ordre chronologique classique :
-#      ancien ➜ en haut, nouveau ➜ en bas (style ChatGPT)
-#  • Aucun doublon — on affiche immédiatement les deux messages
-#    puis on les stocke pour la prochaine exécution.
-# -----------------------------------------------------------------------------
+# frontend/app.py – v7 (récent ➜ haut, mais Q ➜ R dans le bon ordre)
 
 import streamlit as st
 import requests
@@ -13,50 +6,23 @@ import os
 
 st.set_page_config(page_title="Klint – PBIX Spec & Chat", layout="wide")
 
-# -----------------------------------------------------------------------------
-# CSS : input fixé en bas + padding bas du main container
-# -----------------------------------------------------------------------------
-st.markdown(
-    """
-    <style>
-        /* Input fixe */
-        [data-testid="stChatInputContainer"] {
-            position: fixed !important;
-            bottom: 0;
-            left: 350px; /* largeur sidebar par défaut */
-            right: 0;
-            padding: 0.5rem 1rem 0.75rem 1rem;
-            background: var(--background-color);
-            border-top: 1px solid var(--secondary-background-color);
-            z-index: 101;
-        }
-        /* Laisse de l’espace pour ne pas masquer le dernier message */
-        section.main > div:first-child {
-            padding-bottom: 7rem;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
 st.title("🚀 Klint – PBIX Spec & Chat")
 BACKEND = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
 
 # -----------------------------------------------------------------------------
-# 1) STATE INIT
+# 1) SESSION STATE INIT
 # -----------------------------------------------------------------------------
-DEFAULTS = {
-    "chat": [],
+for k, v in {
+    "chat": [],   # stocke toujours par paires (user, assistant)
     "spec_id": None,
     "spec_func": None,
     "spec_tech": None,
     "pbix_uid": None,
-}
-for k, v in DEFAULTS.items():
+}.items():
     st.session_state.setdefault(k, v)
 
 # -----------------------------------------------------------------------------
-# 2) SIDEBAR – Upload PBIX et génération automatique
+# 2) SIDEBAR – Upload PBIX
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.header("📂 Charger un PBIX")
@@ -84,17 +50,16 @@ with st.sidebar:
                         "spec_id": data["id"],
                         "spec_func": data["functional"],
                         "spec_tech": data["technical"],
-                        "chat": [],  # reset chat history
+                        "chat": [],
                     }
                 )
             st.success("Spécification générée ✅")
 
 # -----------------------------------------------------------------------------
-# 3) LAYOUT PRINCIPAL : Chat | Spec
+# 3) LAYOUT PRINCIPAL
 # -----------------------------------------------------------------------------
 col_chat, col_spec = st.columns([1.1, 1.5], gap="large")
 
-# ---------- SPÉCIFICATION -----------------------------------------------------
 with col_spec:
     st.subheader("📄 Spécification fonctionnelle")
     if st.session_state.spec_func:
@@ -104,24 +69,16 @@ with col_spec:
     else:
         st.info("Aucune spécification chargée pour l’instant.")
 
-# ---------- CHAT --------------------------------------------------------------
 with col_chat:
     st.subheader("💬 Chat Datamodel")
 
     if not st.session_state.spec_id:
         st.info("Charge d’abord un PBIX pour activer le chat.")
     else:
-        # Affiche l’historique dans l’ordre naturel (ancien -> nouveau)
-        for role, msg in st.session_state.chat:
-            st.chat_message(role).markdown(msg)
-
-        # Input (fixé en bas via CSS)
+        # ------------------ Input (en haut)
         prompt = st.chat_input("Pose ta question…")
         if prompt:
-            # 1) Affiche immédiatement la question
-            st.chat_message("user").markdown(prompt)
-
-            # 2) Interroge le backend
+            st.session_state.chat.append(("user", prompt))
             with st.spinner("L’IA réfléchit…"):
                 try:
                     r = requests.post(
@@ -133,10 +90,14 @@ with col_chat:
                     answer = r.json().get("answer", "Réponse vide.")
                 except Exception as exc:
                     answer = f"Erreur backend : {exc}"
-
-            # 3) Affiche immédiatement la réponse
-            st.chat_message("assistant").markdown(answer)
-
-            # 4) Stocke les deux messages pour les prochains reruns
-            st.session_state.chat.append(("user", prompt))
             st.session_state.chat.append(("assistant", answer))
+
+        # ------------------ Affichage : exchange par exchange (récent ➜ haut)
+        chat = st.session_state.chat
+        idx = len(chat) - 2  # pointe sur le dernier "user"
+        while idx >= 0:
+            user_role, user_msg = chat[idx]
+            assistant_role, assistant_msg = chat[idx + 1]
+            st.chat_message(user_role).markdown(user_msg)
+            st.chat_message(assistant_role).markdown(assistant_msg)
+            idx -= 2
